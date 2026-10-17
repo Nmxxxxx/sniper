@@ -1,0 +1,10 @@
+.env
+*.pem
+*.key
+keypair*.json
+wallet*.json
+__pycache__/
+.venv/
+venv/
+trades.csv
+.DS_Store
