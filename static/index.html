@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pump.fun Sniper — панель</title>
+<style>
+:root{
+  --bg:#f6f7f9;--card:#fff;--text:#1b1f24;--muted:#6b7280;--border:#e3e6ea;
+  --accent:#6d4aff;--accent-text:#fff;--good:#12805c;--bad:#c93c3c;--warn:#b7791f;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#0f1115;--card:#171a21;--text:#e6e8ec;--muted:#8b93a1;--border:#272c36;
+        --accent:#8b72ff;--accent-text:#0f1115;--good:#3ecf8e;--bad:#ff6b6b;--warn:#f0b34a}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 20px;border-bottom:1px solid var(--border);background:var(--card)}
+header h1{font-size:16px;margin:0;font-weight:600}
+.badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid var(--border);color:var(--muted)}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:13px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--muted)}
+.dot.running{background:var(--good)}
+.dot.connecting{background:var(--warn)}
+.spacer{flex:1}
+button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);padding:7px 14px}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);color:var(--accent-text);border-color:var(--accent);font-weight:600}
+button.danger{color:var(--bad)}
+nav{display:flex;gap:4px;padding:10px 20px 0;border-bottom:1px solid var(--border);background:var(--card);overflow-x:auto}
+nav button{border:none;border-bottom:2px solid transparent;border-radius:0;background:none;color:var(--muted);padding:8px 12px}
+nav button.active{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
+main{max-width:1100px;margin:0 auto;padding:20px}
+.tab{display:none}.tab.active{display:block}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+.card .label{color:var(--muted);font-size:12px;margin-bottom:4px}
+.card .value{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+.card h3{margin:0 0 10px;font-size:14px}
+.good{color:var(--good)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
+th{color:var(--muted);font-weight:500;font-size:12px}
+td.num,th.num{text-align:right}
+.scroll{overflow-x:auto}
+.empty{color:var(--muted);padding:24px;text-align:center}
+#chart svg{width:100%;height:200px;display:block}
+#chart .zero{stroke:var(--border);stroke-width:1;stroke-dasharray:4 4}
+.row2{display:grid;grid-template-columns:2fr 1fr;gap:12px}
+@media(max-width:800px){.row2{grid-template-columns:1fr}}
+.field{display:grid;grid-template-columns:1fr 160px;gap:4px 16px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)}
+.field .hint{grid-column:1;color:var(--muted);font-size:12px}
+.field input{grid-row:1/3;grid-column:2;font:inherit;padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);width:100%}
+.actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+#settings-msg{margin-top:10px;font-size:13px}
+.log{font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace}
+.log div{padding:2px 0;border-bottom:1px solid var(--border)}
+.log .t{color:var(--muted);margin-right:8px}
+.log .buy{color:var(--accent)}.log .win{color:var(--good)}.log .loss{color:var(--bad)}.log .warn{color:var(--warn)}
+a{color:var(--accent)}
+select{font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text)}
+.field input[type=checkbox]{width:auto;justify-self:end;transform:scale(1.3)}
+.note{color:var(--muted);font-size:13px;margin:0 0 12px}
+#banner{display:none;background:rgba(201,60,60,.12);border:1px solid var(--bad);color:var(--text);border-radius:12px;padding:12px 16px;margin-bottom:16px}
+#banner b{color:var(--bad)}
+.verdict{font-size:15px;margin:0 0 6px}
+.toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Pump.fun Sniper</h1>
+  <span class="badge">PAPER MODE</span>
+  <span class="pill"><span class="dot" id="dot"></span><span id="status-text">…</span></span>
+  <span class="pill" style="color:var(--muted)" id="uptime"></span>
+  <span class="spacer"></span>
+  <button class="primary" id="toggle">Запустить</button>
+</header>
+<nav id="nav">
+  <button data-tab="overview" class="active">Обзор</button>
+  <button data-tab="positions">Позиции <span id="pos-count"></span></button>
+  <button data-tab="trades">Сделки</button>
+  <button data-tab="learning">Обучение</button>
+  <button data-tab="settings">Настройки</button>
+  <button data-tab="log">Лог</button>
+</nav>
+
+<main>
+  <div id="banner"></div>
+  <section class="tab active" id="tab-overview">
+    <div class="grid" id="cards"></div>
+    <div class="row2">
+      <div class="card"><h3>Прибыль нарастающим итогом, SOL</h3><div id="chart"></div></div>
+      <div class="card"><h3>Выходы по причинам</h3><div id="reasons"></div></div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-positions">
+    <div class="card scroll"><div id="positions"></div></div>
+  </section>
+
+  <section class="tab" id="tab-trades">
+    <div class="toolbar">
+      <select id="reason-filter">
+        <option value="">Все причины выхода</option>
+        <option value="take_profit">Тейк-профит</option>
+        <option value="stop_loss">Стоп-лосс</option>
+        <option value="timeout">Таймер</option>
+        <option value="manual_stop">Остановка бота</option>
+        <option value="disconnect">Обрыв связи</option>
+      </select>
+      <span style="color:var(--muted)">последние 200 сделок</span>
+    </div>
+    <div class="card scroll"><div id="trades"></div></div>
+  </section>
+
+  <section class="tab" id="tab-learning">
+    <div class="grid" id="learn-cards"></div>
+    <div class="card" style="margin-bottom:16px">
+      <h3>Помогает ли обучение: проверка на «новых» данных</h3>
+      <div id="walk"></div>
+    </div>
+    <div class="card scroll">
+      <h3>Что модель выучила: какие признаки повышают или понижают результат</h3>
+      <p class="note">«Эффект» — на сколько процентов корзина сдвигает ожидаемый результат относительно среднего (с поправкой на малое число сделок). Корзины с малым «n» ненадёжны.</p>
+      <div id="learn-table"></div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-settings">
+    <div class="card">
+      <h3>Параметры стратегии</h3>
+      <p style="color:var(--muted);margin:0 0 6px">Изменения применяются сразу, перезапуск не нужен. Для уже открытых позиций новые TP, SL и таймер тоже действуют.</p>
+      <form id="settings-form"></form>
+      <div class="actions">
+        <button class="primary" id="save-settings" type="button">Сохранить</button>
+        <button id="reset-settings" type="button">Стандартные значения</button>
+        <span class="spacer"></span>
+        <button class="danger" id="reset-stats" type="button">Сбросить статистику</button>
+      </div>
+      <div id="settings-msg"></div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-log">
+    <div class="card"><div class="log" id="log"></div></div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+// Названия и символы токенов приходят из сети и могут содержать вредоносный HTML, поэтому всё экранируем.
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = (n, d = 2) => Number(n).toFixed(d);
+const sign = (n, d = 2) => (n > 0 ? '+' : '') + fmt(n, d);
+const cls = n => n > 0 ? 'good' : n < 0 ? 'bad' : '';
+const REASONS = {take_profit:'Тейк-профит', stop_loss:'Стоп-лосс', timeout:'Таймер', manual_stop:'Остановка бота', disconnect:'Обрыв связи'};
+const TAGS = {model:'модель', explore:'проба', warmup:'прогрев', plain:'без модели'};
+const FEATURES = {dev_buy_sol:'Покупка создателя, SOL', unique_buyers:'Уникальных покупателей за окно',
+  sells:'Продаж за окно', creator_sold:'Создатель продал', volume_sol:'Объём за окно, SOL', mcap_change_pct:'Рост mcap за окно, %'};
+const STATUS = {stopped:'Остановлен', connecting:'Подключение…', running:'Работает'};
+const dur = s => { s = Math.round(s); const m = Math.floor(s/60); return m ? `${m}м ${s%60}с` : `${s}с`; };
+const short = m => m.slice(0,4) + '…' + m.slice(-4);
+const mintLink = m => `<a href="https://pump.fun/coin/${encodeURIComponent(m)}" target="_blank" rel="noopener noreferrer">${esc(short(m))}</a>`;
+
+let state = null;
+
+// ---------- вкладки ----------
+document.querySelectorAll('#nav button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('#nav button').forEach(x => x.classList.toggle('active', x === b));
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + b.dataset.tab));
+  if (b.dataset.tab === 'settings') loadSettings();
+}));
+
+// ---------- запросы ----------
+async function post(url, body = {}) {
+  return fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+}
+
+$('#toggle').addEventListener('click', async () => {
+  const stopped = state && state.status === 'stopped';
+  await post('/api/control', {action: stopped ? 'start' : 'stop'});
+  poll();
+});
+
+$('#reset-stats').addEventListener('click', async () => {
+  if (!confirm('Сбросить статистику? Файл trades.csv будет переименован в .bak, а не удалён.')) return;
+  await post('/api/control', {action: 'reset_stats'});
+  poll();
+});
+
+// ---------- рендер ----------
+function card(label, value, c = '') {
+  return `<div class="card"><div class="label">${label}</div><div class="value ${c}">${value}</div></div>`;
+}
+
+function drawChart(eq) {
+  const el = $('#chart');
+  if (eq.length < 2) { el.innerHTML = '<div class="empty">Пока мало сделок для графика</div>'; return; }
+  const W = 600, H = 200, P = 10;
+  const min = Math.min(0, ...eq), max = Math.max(0, ...eq), span = (max - min) || 1;
+  const x = i => P + i * (W - 2*P) / (eq.length - 1);
+  const y = v => H - P - (v - min) * (H - 2*P) / span;
+  const pts = eq.map((v, i) => x(i).toFixed(1) + ',' + y(v).toFixed(1)).join(' ');
+  const color = eq[eq.length - 1] >= 0 ? 'var(--good)' : 'var(--bad)';
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+    <line class="zero" x1="${P}" x2="${W-P}" y1="${y(0)}" y2="${y(0)}"/>
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
+}
+
+function table(headers, rows, emptyText) {
+  if (!rows.length) return `<div class="empty">${emptyText}</div>`;
+  const th = headers.map(h => `<th class="${h[1] ? 'num' : ''}">${h[0]}</th>`).join('');
+  return `<table><thead><tr>${th}</tr></thead><tbody>${rows.join('')}</tbody></table>`;
+}
+
+function render() {
+  const s = state, st = s.stats, dg = s.diagnostics;
+  $('#dot').className = 'dot ' + s.status;
+  $('#status-text').textContent = STATUS[s.status];
+  $('#uptime').textContent = s.status === 'stopped' ? '' : 'аптайм ' + dur(s.uptime_s);
+  $('#toggle').textContent = s.status === 'stopped' ? 'Запустить' : 'Остановить';
+  $('#toggle').className = s.status === 'stopped' ? 'primary' : '';
+  $('#pos-count').textContent = s.positions.length ? `(${s.positions.length})` : '';
+
+  $('#cards').innerHTML =
+    card('Итоговый PnL, SOL', sign(st.total_pnl_sol, 4), cls(st.total_pnl_sol)) +
+    card('В открытых позициях, SOL', sign(s.unrealized_sol, 4), cls(s.unrealized_sol)) +
+    card('Закрытых сделок', st.trades) +
+    card('Доля прибыльных', st.trades ? fmt(st.win_rate, 1) + '%' : '—') +
+    card('Средний результат', st.trades ? sign(st.avg_pnl_pct, 1) + '%' : '—', cls(st.avg_pnl_pct)) +
+    card('Лучшая / худшая', st.trades ? `<span class="good">${sign(st.best_pct,0)}%</span> / <span class="bad">${sign(st.worst_pct,0)}%</span>` : '—') +
+    card('Среднее время в сделке', st.trades ? dur(st.avg_hold_s) : '—') +
+    card('Токенов увидели / купили', `${s.seen} / ${s.entered}`) +
+    card('Источник данных', dg.source === 'solana' ? 'Solana RPC' : 'PumpPortal') +
+    (dg.source === 'solana' ? card('Транзакций / с событиями', `${dg.feed.notifications || 0} / ${(dg.feed.notifications || 0) - (dg.feed.failed_tx || 0) - (dg.feed.no_events || 0)}`) : '') +
+    card('Сообщений: новых токенов / сделок', `${dg.messages.create || 0} / ${(dg.messages.buy || 0) + (dg.messages.sell || 0)}`);
+
+  const bn = $('#banner');
+  if (dg.no_events) {
+    bn.style.display = 'block';
+    bn.innerHTML = `<b>Транзакции pump.fun приходят, но событий сделок в них не найдено.</b> Возможно, pump.fun изменил формат событий. ` +
+      `Получено транзакций: ${dg.feed.notifications || 0}. Пришлите мне текст вкладки «Лог».`;
+  } else if (dg.needs_api_key) {
+    bn.style.display = 'block';
+    bn.innerHTML = dg.has_key
+      ? `<b>Сервер не принял API-ключ или на кошельке ключа не хватает средств.</b> Для сделок по токенам нужен рабочий ключ PumpPortal и кошелёк минимум с 0,02 SOL. Подробности в «Логе».`
+      : `<b>Для сделок по токенам нужен API-ключ PumpPortal.</b> Бесплатно сервер отдаёт только создание токенов, поэтому цены не обновляются и обучаться нечему. Бесплатный способ: укажите <code>SOLANA_WS_URL</code> (адрес Solana RPC) в файле <code>.env</code> и перезапустите бота. Либо платный ключ <code>PUMPPORTAL_API_KEY</code>.`;
+  } else if (dg.no_trade_data) {
+    bn.style.display = 'block';
+    bn.innerHTML = `<b>Сделки по токенам не приходят.</b> Бот подписался на ${dg.subs_sent} токенов, но не получил ни одной сделки по ним. ` +
+      `Пока это так, результаты недостоверны (все токены выглядят «мёртвыми»). Откройте вкладку «Лог»: там будут ответы сервера и причины обрывов связи.`;
+  } else bn.style.display = 'none';
+
+  drawChart(s.equity);
+
+  const reasonRows = Object.entries(s.by_reason).map(([r, v]) =>
+    `<tr><td>${esc(REASONS[r] || r)}</td><td class="num">${v.count}</td><td class="num ${cls(v.pnl_sol)}">${sign(v.pnl_sol, 4)}</td></tr>`);
+  $('#reasons').innerHTML = table([['Причина'], ['Шт.', 1], ['SOL', 1]], reasonRows, 'Пока нет данных');
+
+  $('#positions').innerHTML = table(
+    [['Токен'], ['Mint'], ['Тип входа'], ['Вход, mcap', 1], ['Сейчас, mcap', 1], ['Результат', 1], ['В позиции', 1]],
+    s.positions.map(p => `<tr><td>${esc(p.symbol)}</td><td>${mintLink(p.mint)}</td><td>${esc(TAGS[p.tag] || '')}</td>
+      <td class="num">${fmt(p.entry_mcap,1)}</td><td class="num">${fmt(p.last_mcap,1)}</td>
+      <td class="num ${cls(p.pnl_pct)}">${sign(p.pnl_pct,1)}%</td><td class="num">${dur(p.age_s)}</td></tr>`),
+    'Открытых позиций нет');
+
+  const f = $('#reason-filter').value;
+  const trades = s.trades.filter(t => !f || t.reason === f);
+  $('#trades').innerHTML = table(
+    [['Время'], ['Токен'], ['Mint'], ['Тип входа'], ['Вход', 1], ['Выход', 1], ['Время в сделке', 1], ['Причина'], ['Результат', 1], ['SOL', 1]],
+    trades.map(t => `<tr><td>${esc(t.time)}</td><td>${esc(t.symbol)}</td><td>${mintLink(t.mint)}</td><td>${esc(TAGS[t.tag] || '')}</td>
+      <td class="num">${fmt(t.entry_mcap,1)}</td><td class="num">${fmt(t.exit_mcap,1)}</td>
+      <td class="num">${dur(t.hold_s)}</td><td>${esc(REASONS[t.reason] || t.reason)}</td>
+      <td class="num ${cls(t.pnl_pct)}">${sign(t.pnl_pct,1)}%</td>
+      <td class="num ${cls(t.pnl_sol)}">${sign(t.pnl_sol,4)}</td></tr>`),
+    'Сделок пока нет');
+
+  renderLearning(s.learning);
+
+  $('#log').innerHTML = s.events.length
+    ? s.events.map(e => `<div><span class="t">${esc(e.t)}</span><span class="${esc(e.level)}">${esc(e.msg)}</span></div>`).join('')
+    : '<div class="empty">Событий пока нет</div>';
+}
+function renderLearning(L) {
+  const mode = !L.enabled ? 'выключено' : L.ready ? 'работает' : `прогрев ${L.n}/${L.min_trades}`;
+  const e = L.entries || {};
+  $('#learn-cards').innerHTML =
+    card('Режим обучения', mode) +
+    card('Сделок в обучении', L.n) +
+    card('Токенов в наблюдении', L.watching) +
+    card('Отклонено моделью', L.skipped_model) +
+    card('Отклонено по чёрному списку', L.skipped_blacklist) +
+    card('Создателей в чёрном списке', L.blacklist) +
+    card('Входы: модель / проба / прогрев', `${e.model||0} / ${e.explore||0} / ${e.warmup||0}`);
+
+  const w = L.walk;
+  let html;
+  if (!w.take_n && !w.skip_n) {
+    html = `<p class="verdict">Пока мало данных: проверка начнётся после ${L.min_trades} сделок.</p>`;
+  } else {
+    let verdict = 'Выборка мала для вывода: нужно хотя бы по 30 сделок в каждой группе.';
+    if (w.take_n >= 30 && w.skip_n >= 30) {
+      verdict = w.take_avg > w.skip_avg + 1
+        ? 'Модель пока отличает лучшие входы от худших. Это обнадёживает, но проверяйте на большем числе сделок.'
+        : 'Пока модель не помогает: «взятые» сделки не лучше «пропущенных».';
+    }
+    html = `<p class="verdict">${verdict}</p>
+      <table><thead><tr><th>Группа</th><th class="num">Сделок</th><th class="num">Средний результат</th></tr></thead><tbody>
+      <tr><td>Модель взяла бы</td><td class="num">${w.take_n}</td><td class="num ${cls(w.take_avg)}">${w.take_n ? sign(w.take_avg,1)+'%' : '—'}</td></tr>
+      <tr><td>Модель пропустила бы</td><td class="num">${w.skip_n}</td><td class="num ${cls(w.skip_avg)}">${w.skip_n ? sign(w.skip_avg,1)+'%' : '—'}</td></tr>
+      </tbody></table>
+      <p class="note" style="margin-top:10px">Для каждой сделки модель знает только то, что было до неё. Оценка идёт по сделкам, которые бот реально совершил, поэтому судить стоит по большому числу сделок.</p>`;
+  }
+  $('#walk').innerHTML = html;
+
+  $('#learn-table').innerHTML = table(
+    [['Признак'], ['Корзина'], ['Сделок', 1], ['Средний результат', 1], ['Эффект', 1]],
+    L.buckets.map(b => `<tr><td>${esc(FEATURES[b.feature] || b.feature)}</td><td>${esc(b.bucket)}</td>
+      <td class="num">${b.n}</td><td class="num ${cls(b.avg_pct)}">${sign(b.avg_pct,1)}%</td>
+      <td class="num ${cls(b.effect)}">${sign(b.effect,1)}</td></tr>`),
+    'Пока нет закрытых сделок для обучения');
+}
+$('#reason-filter').addEventListener('change', () => state && render());
+
+async function poll() {
+  try {
+    const r = await fetch('/api/state');
+    state = await r.json();
+  } catch (e) {
+    $('#status-text').textContent = 'Нет связи с ботом';
+    $('#dot').className = 'dot';
+    return;
+  }
+  try {
+    render();
+  } catch (e) {
+    console.error(e);
+    $('#status-text').textContent = 'Ошибка страницы: ' + e.message;
+  }
+}
+setInterval(poll, 1000);
+poll();
+
+// ---------- настройки ----------
+async function loadSettings() {
+  const d = await (await fetch('/api/settings')).json();
+  const form = $('#settings-form');
+  form.innerHTML = '';
+  for (const s of d.spec) {
+    const row = document.createElement('div');
+    row.className = 'field';
+    const input = s.type === 'bool'
+      ? `<input id="f-${s.key}" name="${s.key}" type="checkbox" ${d.values[s.key] ? 'checked' : ''}>`
+      : `<input id="f-${s.key}" name="${s.key}" type="number" step="${s.step}" min="${s.min}" max="${s.max}" value="${d.values[s.key]}">`;
+    row.innerHTML = `<label for="f-${s.key}">${esc(s.label)}</label>
+      <span class="hint">${esc(s.hint)}</span>${input}`;
+    form.appendChild(row);
+  }
+}
+
+function msg(text, ok) {
+  const el = $('#settings-msg');
+  el.className = ok ? 'good' : 'bad';
+  el.innerHTML = text;
+}
+
+$('#save-settings').addEventListener('click', async () => {
+  const data = {};
+  document.querySelectorAll('#settings-form input').forEach(i => { data[i.name] = i.type === 'checkbox' ? i.checked : (i.value === '' ? null : Number(i.value)); });
+  const r = await post('/api/settings', data);
+  const d = await r.json();
+  if (r.ok) msg('Сохранено', true);
+  else msg(d.errors.map(esc).join('<br>'), false);
+});
+
+$('#reset-settings').addEventListener('click', async () => {
+  await post('/api/settings/reset');
+  await loadSettings();
+  msg('Возвращены стандартные значения', true);
+});
+</script>
+</body>
+</html>

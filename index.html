@@ -59,6 +59,11 @@ td.num,th.num{text-align:right}
 .log .buy{color:var(--accent)}.log .win{color:var(--good)}.log .loss{color:var(--bad)}.log .warn{color:var(--warn)}
 a{color:var(--accent)}
 select{font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text)}
+.field input[type=checkbox]{width:auto;justify-self:end;transform:scale(1.3)}
+.note{color:var(--muted);font-size:13px;margin:0 0 12px}
+#banner{display:none;background:rgba(201,60,60,.12);border:1px solid var(--bad);color:var(--text);border-radius:12px;padding:12px 16px;margin-bottom:16px}
+#banner b{color:var(--bad)}
+.verdict{font-size:15px;margin:0 0 6px}
 .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px}
 </style>
 </head>
@@ -75,11 +80,13 @@ select{font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--bo
   <button data-tab="overview" class="active">Обзор</button>
   <button data-tab="positions">Позиции <span id="pos-count"></span></button>
   <button data-tab="trades">Сделки</button>
+  <button data-tab="learning">Обучение</button>
   <button data-tab="settings">Настройки</button>
   <button data-tab="log">Лог</button>
 </nav>
 
 <main>
+  <div id="banner"></div>
   <section class="tab active" id="tab-overview">
     <div class="grid" id="cards"></div>
     <div class="row2">
@@ -105,6 +112,23 @@ select{font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--bo
       <span style="color:var(--muted)">последние 200 сделок</span>
     </div>
     <div class="card scroll"><div id="trades"></div></div>
+  </section>
+
+  <section class="tab" id="tab-learning">
+    <div class="grid" id="learn-cards"></div>
+    <div class="card" style="margin-bottom:16px">
+      <h3>ИИ-оценка токенов</h3>
+      <div id="ai-box"></div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <h3>Помогает ли обучение: проверка на «новых» данных</h3>
+      <div id="walk"></div>
+    </div>
+    <div class="card scroll">
+      <h3>Что модель выучила: какие признаки повышают или понижают результат</h3>
+      <p class="note">«Эффект» — на сколько процентов корзина сдвигает ожидаемый результат относительно среднего (с поправкой на малое число сделок). Корзины с малым «n» ненадёжны.</p>
+      <div id="learn-table"></div>
+    </div>
   </section>
 
   <section class="tab" id="tab-settings">
@@ -135,6 +159,10 @@ const fmt = (n, d = 2) => Number(n).toFixed(d);
 const sign = (n, d = 2) => (n > 0 ? '+' : '') + fmt(n, d);
 const cls = n => n > 0 ? 'good' : n < 0 ? 'bad' : '';
 const REASONS = {take_profit:'Тейк-профит', stop_loss:'Стоп-лосс', timeout:'Таймер', manual_stop:'Остановка бота', disconnect:'Обрыв связи'};
+const TAGS = {model:'модель', explore:'проба', warmup:'прогрев', plain:'без модели'};
+const FEATURES = {dev_buy_sol:'Покупка создателя, SOL', unique_buyers:'Уникальных покупателей за окно',
+  sells:'Продаж за окно', creator_sold:'Создатель продал', volume_sol:'Объём за окно, SOL', mcap_change_pct:'Рост mcap за окно, %',
+  ai_risk:'ИИ: риск скама (0–10)', ai_hype:'ИИ: «хайп» токена (0–10)'};
 const STATUS = {stopped:'Остановлен', connecting:'Подключение…', running:'Работает'};
 const dur = s => { s = Math.round(s); const m = Math.floor(s/60); return m ? `${m}м ${s%60}с` : `${s}с`; };
 const short = m => m.slice(0,4) + '…' + m.slice(-4);
@@ -192,7 +220,7 @@ function table(headers, rows, emptyText) {
 }
 
 function render() {
-  const s = state, st = s.stats;
+  const s = state, st = s.stats, dg = s.diagnostics;
   $('#dot').className = 'dot ' + s.status;
   $('#status-text').textContent = STATUS[s.status];
   $('#uptime').textContent = s.status === 'stopped' ? '' : 'аптайм ' + dur(s.uptime_s);
@@ -208,7 +236,26 @@ function render() {
     card('Средний результат', st.trades ? sign(st.avg_pnl_pct, 1) + '%' : '—', cls(st.avg_pnl_pct)) +
     card('Лучшая / худшая', st.trades ? `<span class="good">${sign(st.best_pct,0)}%</span> / <span class="bad">${sign(st.worst_pct,0)}%</span>` : '—') +
     card('Среднее время в сделке', st.trades ? dur(st.avg_hold_s) : '—') +
-    card('Токенов увидели / купили', `${s.seen} / ${s.entered}`);
+    card('Токенов увидели / купили', `${s.seen} / ${s.entered}`) +
+    card('Источник данных', dg.source === 'solana' ? 'Solana RPC' : 'PumpPortal') +
+    (dg.source === 'solana' ? card('Транзакций / с событиями', `${dg.feed.notifications || 0} / ${(dg.feed.notifications || 0) - (dg.feed.failed_tx || 0) - (dg.feed.no_events || 0)}`) : '') +
+    card('Сообщений: новых токенов / сделок', `${dg.messages.create || 0} / ${(dg.messages.buy || 0) + (dg.messages.sell || 0)}`);
+
+  const bn = $('#banner');
+  if (dg.no_events) {
+    bn.style.display = 'block';
+    bn.innerHTML = `<b>Транзакции pump.fun приходят, но событий сделок в них не найдено.</b> Возможно, pump.fun изменил формат событий. ` +
+      `Получено транзакций: ${dg.feed.notifications || 0}. Пришлите мне текст вкладки «Лог».`;
+  } else if (dg.needs_api_key) {
+    bn.style.display = 'block';
+    bn.innerHTML = dg.has_key
+      ? `<b>Сервер не принял API-ключ или на кошельке ключа не хватает средств.</b> Для сделок по токенам нужен рабочий ключ PumpPortal и кошелёк минимум с 0,02 SOL. Подробности в «Логе».`
+      : `<b>Для сделок по токенам нужен API-ключ PumpPortal.</b> Бесплатно сервер отдаёт только создание токенов, поэтому цены не обновляются и обучаться нечему. Бесплатный способ: укажите <code>SOLANA_WS_URL</code> (адрес Solana RPC) в файле <code>.env</code> и перезапустите бота. Либо платный ключ <code>PUMPPORTAL_API_KEY</code>.`;
+  } else if (dg.no_trade_data) {
+    bn.style.display = 'block';
+    bn.innerHTML = `<b>Сделки по токенам не приходят.</b> Бот подписался на ${dg.subs_sent} токенов, но не получил ни одной сделки по ним. ` +
+      `Пока это так, результаты недостоверны (все токены выглядят «мёртвыми»). Откройте вкладку «Лог»: там будут ответы сервера и причины обрывов связи.`;
+  } else bn.style.display = 'none';
 
   drawChart(s.equity);
 
@@ -217,8 +264,8 @@ function render() {
   $('#reasons').innerHTML = table([['Причина'], ['Шт.', 1], ['SOL', 1]], reasonRows, 'Пока нет данных');
 
   $('#positions').innerHTML = table(
-    [['Токен'], ['Mint'], ['Вход, mcap', 1], ['Сейчас, mcap', 1], ['Результат', 1], ['В позиции', 1]],
-    s.positions.map(p => `<tr><td>${esc(p.symbol)}</td><td>${mintLink(p.mint)}</td>
+    [['Токен'], ['Mint'], ['Тип входа'], ['ИИ риск / хайп', 1], ['Вход, mcap', 1], ['Сейчас, mcap', 1], ['Результат', 1], ['В позиции', 1]],
+    s.positions.map(p => `<tr><td>${esc(p.symbol)}</td><td>${mintLink(p.mint)}</td><td>${esc(TAGS[p.tag] || '')}</td><td class="num">${aiCell(p)}</td>
       <td class="num">${fmt(p.entry_mcap,1)}</td><td class="num">${fmt(p.last_mcap,1)}</td>
       <td class="num ${cls(p.pnl_pct)}">${sign(p.pnl_pct,1)}%</td><td class="num">${dur(p.age_s)}</td></tr>`),
     'Открытых позиций нет');
@@ -226,17 +273,101 @@ function render() {
   const f = $('#reason-filter').value;
   const trades = s.trades.filter(t => !f || t.reason === f);
   $('#trades').innerHTML = table(
-    [['Время'], ['Токен'], ['Mint'], ['Вход', 1], ['Выход', 1], ['Время в сделке', 1], ['Причина'], ['Результат', 1], ['SOL', 1]],
-    trades.map(t => `<tr><td>${esc(t.time)}</td><td>${esc(t.symbol)}</td><td>${mintLink(t.mint)}</td>
+    [['Время'], ['Токен'], ['Mint'], ['Тип входа'], ['ИИ риск / хайп', 1], ['Вход', 1], ['Выход', 1], ['Время в сделке', 1], ['Причина'], ['Результат', 1], ['SOL', 1]],
+    trades.map(t => `<tr><td>${esc(t.time)}</td><td>${esc(t.symbol)}</td><td>${mintLink(t.mint)}</td><td>${esc(TAGS[t.tag] || '')}</td><td class="num">${aiCell(t)}</td>
       <td class="num">${fmt(t.entry_mcap,1)}</td><td class="num">${fmt(t.exit_mcap,1)}</td>
       <td class="num">${dur(t.hold_s)}</td><td>${esc(REASONS[t.reason] || t.reason)}</td>
       <td class="num ${cls(t.pnl_pct)}">${sign(t.pnl_pct,1)}%</td>
       <td class="num ${cls(t.pnl_sol)}">${sign(t.pnl_sol,4)}</td></tr>`),
     'Сделок пока нет');
 
+  renderLearning(s.learning);
+  renderAI(s.ai);
+
   $('#log').innerHTML = s.events.length
     ? s.events.map(e => `<div><span class="t">${esc(e.t)}</span><span class="${esc(e.level)}">${esc(e.msg)}</span></div>`).join('')
     : '<div class="empty">Событий пока нет</div>';
+}
+const aiCell = x => (x.ai_risk == null ? '—' : `${x.ai_risk} / ${x.ai_hype}`);
+
+function renderAI(A) {
+  const box = $('#ai-box');
+  if (!A.configured) {
+    box.innerHTML = `<p class="verdict">ИИ-оценка выключена: не указан ключ.</p>
+      <p class="note">Укажите <code>DEEPSEEK_API_KEY</code> в файле <code>.env</code> и перезапустите бота. API платный (отдельный от чата DeepSeek), каждый вызов стоит доли цента.</p>`;
+    return;
+  }
+  const st = A.stats;
+  const state = A.enabled ? 'работает' : 'выключена';
+  let html = `<div class="grid">` +
+    card('Состояние', state) +
+    card('Модель (DeepSeek)', esc(A.model)) +
+    card('Оценок получено', st.ok || 0) +
+    card('Не успел / ошибки / лимит', `${(st.timeouts || 0) + (st.too_slow || 0)} / ${(st.errors || 0) + (st.parse_errors || 0)} / ${st.rate_limited || 0}`) +
+    card('Средняя задержка', A.avg_latency_s ? fmt(A.avg_latency_s, 1) + ' с' : '—') +
+    card('Токенов израсходовано', `${st.tokens_in || 0} вх. / ${st.tokens_out || 0} вых.`) +
+    card('Примерная стоимость', '$' + fmt(A.cost_usd, 4)) +
+    card('Отклонено по риску ИИ', A.skipped) + `</div>`;
+  if (A.last_error) html += `<p class="note bad">Последняя ошибка: ${esc(A.last_error)}</p>`;
+
+  const br = A.by_risk;
+  const low = br.find(b => b.bucket === '<3'), high = br.find(b => b.bucket === '≥6');
+  let verdict = 'Пока мало сделок с оценкой ИИ: нужно хотя бы по 30 в группах низкого и высокого риска.';
+  if (low && high && low.n >= 30 && high.n >= 30) {
+    verdict = low.avg_pct > high.avg_pct + 2
+      ? 'Токены с низким риском по оценке ИИ пока дают результат лучше, чем с высоким. Оценка выглядит полезной.'
+      : 'Пока оценка риска ИИ не отличает хорошие входы от плохих: результаты групп близки.';
+  }
+  html += `<p class="verdict" style="margin-top:12px">${verdict}</p>`;
+  html += table([['Риск по оценке ИИ'], ['Сделок', 1], ['Средний результат', 1]],
+    br.map(b => `<tr><td>${esc(b.bucket)}</td><td class="num">${b.n}</td><td class="num ${cls(b.avg_pct)}">${sign(b.avg_pct,1)}%</td></tr>`),
+    'Пока нет закрытых сделок с оценкой ИИ');
+
+  html += `<h3 style="margin:16px 0 8px">Последние оценки</h3>` + table(
+    [['Токен'], ['Риск', 1], ['Хайп', 1], ['Комментарий ИИ']],
+    A.recent.map(r => `<tr><td>${esc(r.symbol)}</td><td class="num ${r.risk >= 6 ? 'bad' : r.risk < 3 ? 'good' : ''}">${r.risk}</td><td class="num">${r.hype}</td><td style="white-space:normal">${esc(r.reason)}</td></tr>`),
+    'Оценок пока нет');
+  box.innerHTML = html;
+}
+
+function renderLearning(L) {
+  const mode = !L.enabled ? 'выключено' : L.ready ? 'работает' : `прогрев ${L.n}/${L.min_trades}`;
+  const e = L.entries || {};
+  $('#learn-cards').innerHTML =
+    card('Режим обучения', mode) +
+    card('Сделок в обучении', L.n) +
+    card('Токенов в наблюдении', L.watching) +
+    card('Отклонено моделью', L.skipped_model) +
+    card('Отклонено по чёрному списку', L.skipped_blacklist) +
+    card('Создателей в чёрном списке', L.blacklist) +
+    card('Входы: модель / проба / прогрев', `${e.model||0} / ${e.explore||0} / ${e.warmup||0}`);
+
+  const w = L.walk;
+  let html;
+  if (!w.take_n && !w.skip_n) {
+    html = `<p class="verdict">Пока мало данных: проверка начнётся после ${L.min_trades} сделок.</p>`;
+  } else {
+    let verdict = 'Выборка мала для вывода: нужно хотя бы по 30 сделок в каждой группе.';
+    if (w.take_n >= 30 && w.skip_n >= 30) {
+      verdict = w.take_avg > w.skip_avg + 1
+        ? 'Модель пока отличает лучшие входы от худших. Это обнадёживает, но проверяйте на большем числе сделок.'
+        : 'Пока модель не помогает: «взятые» сделки не лучше «пропущенных».';
+    }
+    html = `<p class="verdict">${verdict}</p>
+      <table><thead><tr><th>Группа</th><th class="num">Сделок</th><th class="num">Средний результат</th></tr></thead><tbody>
+      <tr><td>Модель взяла бы</td><td class="num">${w.take_n}</td><td class="num ${cls(w.take_avg)}">${w.take_n ? sign(w.take_avg,1)+'%' : '—'}</td></tr>
+      <tr><td>Модель пропустила бы</td><td class="num">${w.skip_n}</td><td class="num ${cls(w.skip_avg)}">${w.skip_n ? sign(w.skip_avg,1)+'%' : '—'}</td></tr>
+      </tbody></table>
+      <p class="note" style="margin-top:10px">Для каждой сделки модель знает только то, что было до неё. Оценка идёт по сделкам, которые бот реально совершил, поэтому судить стоит по большому числу сделок.</p>`;
+  }
+  $('#walk').innerHTML = html;
+
+  $('#learn-table').innerHTML = table(
+    [['Признак'], ['Корзина'], ['Сделок', 1], ['Средний результат', 1], ['Эффект', 1]],
+    L.buckets.map(b => `<tr><td>${esc(FEATURES[b.feature] || b.feature)}</td><td>${esc(b.bucket)}</td>
+      <td class="num">${b.n}</td><td class="num ${cls(b.avg_pct)}">${sign(b.avg_pct,1)}%</td>
+      <td class="num ${cls(b.effect)}">${sign(b.effect,1)}</td></tr>`),
+    'Пока нет закрытых сделок для обучения');
 }
 $('#reason-filter').addEventListener('change', () => state && render());
 
@@ -244,10 +375,16 @@ async function poll() {
   try {
     const r = await fetch('/api/state');
     state = await r.json();
-    render();
   } catch (e) {
     $('#status-text').textContent = 'Нет связи с ботом';
     $('#dot').className = 'dot';
+    return;
+  }
+  try {
+    render();
+  } catch (e) {
+    console.error(e);
+    $('#status-text').textContent = 'Ошибка страницы: ' + e.message;
   }
 }
 setInterval(poll, 1000);
@@ -261,9 +398,11 @@ async function loadSettings() {
   for (const s of d.spec) {
     const row = document.createElement('div');
     row.className = 'field';
+    const input = s.type === 'bool'
+      ? `<input id="f-${s.key}" name="${s.key}" type="checkbox" ${d.values[s.key] ? 'checked' : ''}>`
+      : `<input id="f-${s.key}" name="${s.key}" type="number" step="${s.step}" min="${s.min}" max="${s.max}" value="${d.values[s.key]}">`;
     row.innerHTML = `<label for="f-${s.key}">${esc(s.label)}</label>
-      <span class="hint">${esc(s.hint)}</span>
-      <input id="f-${s.key}" name="${s.key}" type="number" step="${s.step}" min="${s.min}" max="${s.max}" value="${d.values[s.key]}">`;
+      <span class="hint">${esc(s.hint)}</span>${input}`;
     form.appendChild(row);
   }
 }
@@ -276,7 +415,7 @@ function msg(text, ok) {
 
 $('#save-settings').addEventListener('click', async () => {
   const data = {};
-  document.querySelectorAll('#settings-form input').forEach(i => { data[i.name] = i.value === '' ? null : Number(i.value); });
+  document.querySelectorAll('#settings-form input').forEach(i => { data[i.name] = i.type === 'checkbox' ? i.checked : (i.value === '' ? null : Number(i.value)); });
   const r = await post('/api/settings', data);
   const d = await r.json();
   if (r.ok) msg('Сохранено', true);
